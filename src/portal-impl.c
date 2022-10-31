@@ -44,6 +44,24 @@ G_DEFINE_AUTOPTR_CLEANUP_FUNC(PortalImplementation, portal_implementation_free)
 static GList *implementations = NULL;
 
 static gboolean
+check_interface_name (const char *name, GError **error)
+{
+  if (!g_dbus_is_interface_name (name))
+    {
+      g_set_error (error, G_KEY_FILE_ERROR, G_KEY_FILE_ERROR_INVALID_VALUE,
+                    "Not a valid interface name: %s", name);
+      return FALSE;
+    }
+  if (!g_str_has_prefix (name, "org.freedesktop.impl.portal."))
+    {
+      g_set_error (error, G_KEY_FILE_ERROR, G_KEY_FILE_ERROR_INVALID_VALUE,
+                    "Not a portal backend interface: %s", name);
+      return FALSE;
+    }
+  return TRUE;
+}
+
+static gboolean
 register_portal (const char *path, gboolean opt_verbose, GError **error)
 {
   g_autoptr(GKeyFile) keyfile = g_key_file_new ();
@@ -71,30 +89,29 @@ register_portal (const char *path, gboolean opt_verbose, GError **error)
     return FALSE;
   for (i = 0; impl->interfaces[i]; i++)
     {
-      if (!g_dbus_is_interface_name (impl->interfaces[i]))
-        {
-          g_set_error (error, G_KEY_FILE_ERROR, G_KEY_FILE_ERROR_INVALID_VALUE,
-                       "Not a valid interface name: %s", impl->interfaces[i]);
-          return FALSE;
-        }
-      if (!g_str_has_prefix (impl->interfaces[i], "org.freedesktop.impl.portal."))
-        {
-          g_set_error (error, G_KEY_FILE_ERROR, G_KEY_FILE_ERROR_INVALID_VALUE,
-                       "Not a portal backend interface: %s", impl->interfaces[i]);
-          return FALSE;
-        }
+      if (!check_interface_name(impl->interfaces[i], error))
+        return FALSE;
+    }
+
+  impl->exclusive_interfaces = g_key_file_get_string_list (keyfile, "portal", "ExclusiveInterfaces", NULL, error);
+  for (i = 0; impl->exclusive_interfaces[i]; i++)
+    {
+      if (!check_interface_name(impl->exclusive_interfaces[i], error))
+        return FALSE;
     }
 
   impl->use_in = g_key_file_get_string_list (keyfile, "portal", "UseIn", NULL, error);
   if (impl->use_in == NULL)
     return FALSE;
 
-  if (opt_verbose)
+  if (opt_verbose || TRUE)
     {
       g_autofree char *uses = g_strjoinv (", ", impl->use_in);
       g_debug ("portal implementation for %s", uses);
       for (i = 0; impl->interfaces[i]; i++)
         g_debug ("portal implementation supports %s", impl->interfaces[i]);
+      for (i = 0; impl->exclusive_interfaces[i]; i++)
+        g_debug ("portal implementation supports %s only in %s", impl->exclusive_interfaces[i], uses);
     }
 
   implementations = g_list_prepend (implementations, impl);
@@ -217,7 +234,9 @@ find_portal_implementation (const char *interface)
         {
           PortalImplementation *impl = l->data;
 
-          if (!g_strv_contains ((const char **)impl->interfaces, interface))
+          if (!g_strv_contains ((const char **)impl->interfaces, interface) &&
+              !g_strv_contains ((const char **)impl->exclusive_interfaces, interface)
+          )
             continue;
 
           if (g_strv_case_contains ((const char **)impl->use_in, desktops[i]))

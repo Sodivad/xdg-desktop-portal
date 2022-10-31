@@ -29,7 +29,7 @@ typedef struct {
   char *dbus_name;
   char **interfaces;
   char **use_in;
-  int priority;
+  char **exclusive_interfaces;
 } PortalImplementation;
 
 void                  load_installed_portals          (gboolean opt_verbose);
