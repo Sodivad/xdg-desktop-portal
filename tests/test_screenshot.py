@@ -27,16 +27,25 @@ def required_templates():
     }
 
 
+def screenshot_and_access():
+    return {
+        "screenshot": {
+            "results": SCREENSHOT_DATA,
+        },
+        "access": {},
+    }
+
+
 class TestScreenshot:
     def test_version(self, portals, dbus_con):
         xdp.check_version(dbus_con, "Screenshot", 2)
 
-    def test_screenshot_basic(self, portals, dbus_con, app_id):
+    @pytest.mark.parametrize("required_templates", [screenshot_and_access()])
+    @pytest.mark.parametrize("modal", [True, False])
+    @pytest.mark.parametrize("interactive", [True, False])
+    def test_screenshot_basic(self, portals, dbus_con, app_id, modal, interactive):
         screenshot_intf = xdp.get_portal_iface(dbus_con, "Screenshot")
         mock_intf = xdp.get_mock_iface(dbus_con)
-
-        modal = True
-        interactive = True
 
         request = xdp.Request(dbus_con, screenshot_intf)
         options = {
@@ -61,6 +70,15 @@ class TestScreenshot:
         assert args[2] == ""  # parent window
         assert args[3]["modal"] == modal
         assert args[3]["interactive"] == interactive
+
+        # check that args were forwarded to access portal correctly
+        if not interactive:
+            method_calls = mock_intf.GetMethodCalls("AccessDialog")
+            assert len(method_calls) > 0
+            _, args = method_calls[-1]
+            assert args[1] == app_id
+            assert args[2] == ""  # parent window
+            assert args[6]["modal"] == modal
 
     @pytest.mark.parametrize(
         "template_params", ({"screenshot": {"expect-close": True}},)
