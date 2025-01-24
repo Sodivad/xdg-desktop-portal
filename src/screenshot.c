@@ -202,6 +202,7 @@ handle_screenshot_in_thread_func (GTask *task,
     G_VARIANT_BUILDER_INIT (G_VARIANT_TYPE_VARDICT);
   XdpPermission permission;
   GVariant *options;
+  GVariant *choices;
   gboolean permission_store_checked = FALSE;
   gboolean interactive;
   gboolean modal;
@@ -230,6 +231,8 @@ handle_screenshot_in_thread_func (GTask *task,
       g_autoptr(GVariant) access_results = NULL;
       g_auto(GVariantBuilder) access_opt_builder =
         G_VARIANT_BUILDER_INIT (G_VARIANT_TYPE_VARDICT);
+      g_auto(GVariantBuilder) choices_builder =
+        G_VARIANT_BUILDER_INIT (G_VARIANT_TYPE ("a(ssa(ss)s)"));
       g_autofree gchar *subtitle = NULL;
       g_autofree gchar *title = NULL;
       const gchar *body;
@@ -249,6 +252,13 @@ handle_screenshot_in_thread_func (GTask *task,
                              "icon", g_variant_new_string ("applets-screenshooter-symbolic"));
       g_variant_builder_add (&access_opt_builder, "{sv}",
                              "modal", g_variant_new_boolean (modal));
+
+
+
+      g_variant_builder_add (&choices_builder, "(ssa(ss)s)",
+                             "ask-always", _("Ask Always"), NULL, permission == XDP_PERMISSION_ASK ? "true" : "false");
+      g_variant_builder_add (&access_opt_builder, "{sv}",
+                             "choices", g_variant_builder_end(&choices_builder));
 
       if (g_strcmp0 (app_id, "") != 0)
         {
@@ -297,8 +307,21 @@ handle_screenshot_in_thread_func (GTask *task,
           return;
         }
 
-      if (permission == XDP_PERMISSION_UNSET)
-        xdp_set_permission_sync (app_id, PERMISSION_TABLE, PERMISSION_ID, access_response == 0 ? XDP_PERMISSION_YES : XDP_PERMISSION_NO);
+      permission = access_response == 0 ? XDP_PERMISSION_YES : XDP_PERMISSION_NO;
+      choices = g_variant_lookup_value (access_results, "choices", G_VARIANT_TYPE ("a(ss)"));
+      for (int i = 0;  choices && i < g_variant_n_children (choices); i++)
+        {
+          char *choice;
+          char *value;
+          g_variant_get_child (choices, i, "(ss)", &choice, &value);
+          g_debug("%s %s", choice, value);
+          if (strcmp (choice, "ask-always") == 0 && strcmp (value, "true") == 0)
+            permission = XDP_PERMISSION_ASK;
+
+        }
+
+        g_debug("setting permission %i", permission);
+        xdp_set_permission_sync (app_id, PERMISSION_TABLE, PERMISSION_ID, permission);
 
       if (access_response != 0)
         {
